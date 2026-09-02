@@ -1,0 +1,174 @@
+{
+  "suite": "SDAF version-1 conformance fixtures",
+  "suite_version": 1,
+  "format_major": 1,
+  "format_minor": 0,
+  "crc": "CRC-32C Castagnoli",
+  "compressed_frame_note": "Zstandard frame bytes are not normative; decoded assertions are normative.",
+  "fixtures": [
+    {
+      "path": "valid/minimal-leading.sdaf",
+      "sha256": "064b7be4c9791f56a7d441736c19894d15e506c5f2197b4aadcbf36a0308c92d",
+      "expected": "accept",
+      "features": [
+        "dense_12_bit",
+        "leading_payload_crc"
+      ],
+      "assertions": {
+        "decoded_values": [
+          0,
+          4095,
+          291,
+          1110,
+          2748,
+          1929
+        ]
+      }
+    },
+    {
+      "path": "valid/minimal-trailing.sdaf",
+      "sha256": "5c740a01e909fb0fd2658c923c23335470feb741c29a4875992c8762f4205c62",
+      "expected": "accept",
+      "features": [
+        "dense_12_bit",
+        "trailing_payload_crc"
+      ],
+      "assertions": {
+        "decoded_values": [
+          0,
+          4095,
+          291,
+          1110,
+          2748,
+          1929
+        ]
+      }
+    },
+    {
+      "path": "valid/compressed-numeric.sdaf",
+      "sha256": "cb966d4356f338f675a5989b7c2a20ae7fc17e1e04837ee8ec081227826ed413",
+      "expected": "accept",
+      "features": [
+        "delta",
+        "zigzag",
+        "byte_shuffle_256",
+        "zstandard"
+      ],
+      "assertions": {
+        "decoded_values": [
+          256,
+          512,
+          257,
+          511,
+          255,
+          513
+        ]
+      }
+    },
+    {
+      "path": "valid/rational-symbolic.sdaf",
+      "sha256": "ccded77039c5f48fe2fa21989b86b5cea4c778ee4aca6a37d97522939a61609d",
+      "expected": "accept",
+      "features": [
+        "rational_scale",
+        "value_map",
+        "bitfield"
+      ],
+      "assertions": {
+        "raw_status": 49,
+        "raw_temperature": 2312,
+        "physical_temperature": 23.12
+      }
+    },
+    {
+      "path": "valid/blob-uncompressed.sdaf",
+      "sha256": "a1973646dc4b006870975f705c1b7007986c5261bad3334458ed8b6013a8363f",
+      "expected": "accept",
+      "features": [
+        "blob",
+        "identity"
+      ],
+      "assertions": {
+        "decoded_hex": "aa55010203"
+      }
+    },
+    {
+      "path": "valid/blob-zstd.sdaf",
+      "sha256": "562ff80692cffebe20a8d0e005ea4c8dd17b6b44eddfaae9f4ee0ebcc1f702d1",
+      "expected": "accept",
+      "features": [
+        "blob",
+        "zstandard"
+      ],
+      "assertions": {
+        "decoded_hex": "aa55010203"
+      }
+    },
+    {
+      "path": "corrupt/bad-file-header-crc.sdaf",
+      "sha256": "ba306a6c667e5e5a6c6b65eab674958b4ae1df34c1282d5583861ec447b99bc8",
+      "expected": "reject_file",
+      "failure": "file_header_crc"
+    },
+    {
+      "path": "corrupt/bad-record-header-crc.sdaf",
+      "sha256": "c41798c3586d225bb361f5aac06d72950e88c3fdc5b9a33dbc00b30c1df62c69",
+      "expected": "reject_affected_record",
+      "failure": "record_header_crc"
+    },
+    {
+      "path": "corrupt/bad-leading-payload-crc.sdaf",
+      "sha256": "e6a1c2aa8282a978ad0ae0e146623a8b70cb2c3ea8c33e1c55d37925f4ff89c2",
+      "expected": "reject_affected_record",
+      "failure": "payload_crc"
+    },
+    {
+      "path": "corrupt/bad-trailer-marker.sdaf",
+      "sha256": "cc201d7bd2b4c0bc7ca4a89549a3d829c4548243555c504b87e28779b3cb7601",
+      "expected": "reject_affected_record",
+      "failure": "trailer_marker"
+    },
+    {
+      "path": "corrupt/bad-trailer-sequence.sdaf",
+      "sha256": "ca93d1f5413fc6bc2fa93ec20f54956f30256e72c63cc2bca211c60b97e47977",
+      "expected": "reject_affected_record",
+      "failure": "trailer_sequence"
+    },
+    {
+      "path": "corrupt/truncated-record-header.sdaf",
+      "sha256": "fa66771d23fd08c4c0a6777d0f6bdf5937ada461ef2bde87b85c2766285353e8",
+      "expected": "accept_prior_records_ignore_incomplete_final",
+      "failure": "truncated_final_header"
+    },
+    {
+      "path": "corrupt/truncated-payload.sdaf",
+      "sha256": "a58236fd1d4fd7ad38a5a32dc14e5ce75bf9b3b31ef7fecfd2cf2fec378f7fbb",
+      "expected": "accept_prior_records_ignore_incomplete_final",
+      "failure": "truncated_final_payload"
+    },
+    {
+      "path": "corrupt/malformed-tlv-overrun.sdaf",
+      "sha256": "b6530824ee1a3f27fb2009990fdbcc8d47c4ba9db7a13afab70c2f90a341c32d",
+      "expected": "reject_affected_record",
+      "failure": "tlv_overrun"
+    },
+    {
+      "path": "corrupt/invalid-transform-order.sdaf",
+      "sha256": "dc653550120ff07f78510c0b57244de1f1dac1a028c05e11f5d5f1ebbcca1416",
+      "expected": "reject_affected_record",
+      "failure": "transform_order"
+    },
+    {
+      "path": "corrupt/blob-decoded-size-mismatch.sdaf",
+      "sha256": "9f42b741b3515703442d119743fe7e4cf264c56e9d09fcc4ae1dbad827ca0473",
+      "expected": "reject_affected_record",
+      "failure": "decoded_size"
+    },
+    {
+      "path": "corrupt/reserved-envelope-flag.sdaf",
+      "sha256": "bef553b9bb7b472e09dc76d266b47246e98b506b705d39edd4c9b737282487c8",
+      "expected": "reject_affected_record",
+      "failure": "reserved_flag"
+    }
+  ]
+}

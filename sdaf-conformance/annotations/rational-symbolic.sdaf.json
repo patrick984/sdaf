@@ -1,0 +1,26 @@
+{
+  "file_size": 772,
+  "header_crc32c": "0x2fd6f74c",
+  "records": [
+    {
+      "offset": 64,
+      "record_type": 1,
+      "sequence": 0,
+      "flags": 0,
+      "header_size": 48,
+      "payload_size": 560,
+      "payload_crc_placement": "header",
+      "stored_size": 608
+    },
+    {
+      "offset": 672,
+      "record_type": 2,
+      "sequence": 1,
+      "flags": 0,
+      "header_size": 96,
+      "payload_size": 4,
+      "payload_crc_placement": "header",
+      "stored_size": 100
+    }
+  ]
+}
