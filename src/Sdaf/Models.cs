@@ -47,15 +47,48 @@ public enum SdafLogicalType : byte
     FixedBytes = 5,
 }
 
-public enum SdafTimestampMode : byte { Periodic = 1, Delta = 2, Explicit = 3, None = 4 }
-public enum SdafLayout : byte { Interleaved = 1, Planar = 2 }
-public enum SdafPacking : byte { Lsb0Dense = 1, ByteAligned = 2 }
-public enum SdafTextSeverity : byte { Unspecified = 0, Trace = 1, Debug = 2, Info = 3, Warning = 4, Error = 5, Fatal = 6 }
-public enum SdafCompression { None, Zstandard, CompressedNumeric }
+public enum SdafTimestampMode : byte
+{
+    Periodic = 1,
+    Delta = 2,
+    Explicit = 3,
+    None = 4,
+}
+
+public enum SdafLayout : byte
+{
+    Interleaved = 1,
+    Planar = 2,
+}
+
+public enum SdafPacking : byte
+{
+    Lsb0Dense = 1,
+    ByteAligned = 2,
+}
+
+public enum SdafTextSeverity : byte
+{
+    Unspecified = 0,
+    Trace = 1,
+    Debug = 2,
+    Info = 3,
+    Warning = 4,
+    Error = 5,
+    Fatal = 6,
+}
+
+public enum SdafCompression
+{
+    None,
+    Zstandard,
+    CompressedNumeric,
+}
 
 public sealed class SdafFormatException : IOException
 {
-    public SdafFormatException(string message) : base(message) { }
+    public SdafFormatException(string message)
+        : base(message) { }
 }
 
 public sealed record SdafLimits
@@ -73,7 +106,8 @@ public sealed record SdafFileHeader(
     byte Minor,
     long CreatedUnixNanoseconds,
     byte[] FileUuid,
-    ulong FirstRecordOffset = 64);
+    ulong FirstRecordOffset = 64
+);
 
 public sealed record SdafRecordEnvelope(
     SdafRecordType RecordType,
@@ -84,12 +118,16 @@ public sealed record SdafRecordEnvelope(
     uint Sequence,
     ulong PayloadSize,
     long FileOffset,
-    bool PayloadCrcInTrailer);
+    bool PayloadCrcInTrailer
+);
 
 public abstract record SdafRecord(SdafRecordEnvelope Envelope);
 
-public sealed record SdafUnknownRecord(SdafRecordEnvelope Envelope, byte[] TypeHeader, byte[] Payload)
-    : SdafRecord(Envelope);
+public sealed record SdafUnknownRecord(
+    SdafRecordEnvelope Envelope,
+    byte[] TypeHeader,
+    byte[] Payload
+) : SdafRecord(Envelope);
 
 public sealed record SdafTransform(ushort Id, byte Version, byte[] Parameters);
 
@@ -114,8 +152,8 @@ public sealed record SdafDataRecord(
     IReadOnlyList<SdafTransform> Transforms,
     byte[] StoredPayload,
     byte[]? DecodedPayload,
-    IReadOnlyList<SdafSample>? Samples)
-    : SdafRecord(Envelope);
+    IReadOnlyList<SdafSample>? Samples
+) : SdafRecord(Envelope);
 
 public sealed record SdafTextRecord(
     SdafRecordEnvelope Envelope,
@@ -126,8 +164,8 @@ public sealed record SdafTextRecord(
     SdafTextSeverity Severity,
     uint? SourceId,
     int? EventCode,
-    string Message)
-    : SdafRecord(Envelope);
+    string Message
+) : SdafRecord(Envelope);
 
 public sealed record SdafBlobRecord(
     SdafRecordEnvelope Envelope,
@@ -139,23 +177,39 @@ public sealed record SdafBlobRecord(
     ulong DecodedBytes,
     IReadOnlyList<SdafTransform> Transforms,
     byte[] StoredPayload,
-    byte[]? DecodedPayload)
-    : SdafRecord(Envelope);
+    byte[]? DecodedPayload
+) : SdafRecord(Envelope);
 
 public sealed record SdafIndexEntry(
-    ulong RecordOffset, uint Sequence, uint StreamId, ulong FirstSampleIndex,
-    uint SampleCount, long FirstTimeTicks, long LastTimeTicks);
+    ulong RecordOffset,
+    uint Sequence,
+    uint StreamId,
+    ulong FirstSampleIndex,
+    uint SampleCount,
+    long FirstTimeTicks,
+    long LastTimeTicks
+);
 
-public sealed record SdafIndexRecord(SdafRecordEnvelope Envelope, IReadOnlyList<SdafIndexEntry> Entries)
-    : SdafRecord(Envelope);
+public sealed record SdafIndexRecord(
+    SdafRecordEnvelope Envelope,
+    IReadOnlyList<SdafIndexEntry> Entries
+) : SdafRecord(Envelope);
 
 public sealed record SdafEndRecord(
-    SdafRecordEnvelope Envelope, ulong TotalRecordCount, ulong TotalDataRecordCount, ulong LastIndexOffset)
+    SdafRecordEnvelope Envelope,
+    ulong TotalRecordCount,
+    ulong TotalDataRecordCount,
+    ulong LastIndexOffset
+) : SdafRecord(Envelope);
+
+public sealed record SdafNoteRecord(SdafRecordEnvelope Envelope, string Message)
     : SdafRecord(Envelope);
 
-public sealed record SdafNoteRecord(SdafRecordEnvelope Envelope, string Message) : SdafRecord(Envelope);
-
-public sealed record SdafSample(ulong Index, long? TimeTicks, IReadOnlyList<SdafSampleValue> Values);
+public sealed record SdafSample(
+    ulong Index,
+    long? TimeTicks,
+    IReadOnlyList<SdafSampleValue> Values
+);
 
 public sealed record SdafSampleValue(
     uint ChannelId,
@@ -167,7 +221,8 @@ public sealed record SdafSampleValue(
     double NumericValue,
     double PhysicalValue,
     byte[]? Bytes,
-    string? Unit);
+    string? Unit
+);
 
 public sealed record SdafDataWriteOptions
 {
