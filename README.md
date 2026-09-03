@@ -2,15 +2,28 @@
 
 This repository contains C99 and .NET 10 encoders, decoders, and command-line converters for SDAF draft 0.4 (format version 1.0). The C implementation builds with a conforming C99 compiler. The C# implementation is compatible with trimming and Native AOT and uses no reflection-based serialization.
 
-## Projects
+## Repository layout
 
-- `src/Sdaf`: record model, CRC-32C, schema parser and validator, sample decoder, encoder, and Zstandard transforms.
-- `src/Sdaf.Cli`: `sdaf` command-line converter for JSON, CBOR, and long-form CSV.
-- `tests/Sdaf.Tests`: TUnit unit, round-trip, CLI, and bundled conformance-fixture tests.
-- `c/include/sdaf`: public C99 API.
-- `c/src`: C99 CRC, schema, codec, decoder, and encoder implementation.
-- `c/cli`: `sdaf-c` command-line converter.
-- `c/tests`: Throw The Switch Unity unit and conformance tests.
+```text
+.
+├── implementations/
+│   ├── c/                  C99 library, CLI, Unity tests, and CMake project
+│   ├── dotnet/             C# library, CLI, TUnit tests, and .NET solution
+│   └── prototyping/        Experimental benchmark programs and scripts
+└── spec/
+    ├── SDAF-Format-v1-draft.md
+    └── sdaf-conformance/   Conformance fixtures, annotations, and generators
+```
+
+The principal implementation directories are:
+
+- `implementations/c/include/sdaf`: public C99 API.
+- `implementations/c/src`: C99 CRC, schema, codec, decoder, and encoder implementation.
+- `implementations/c/cli`: `sdaf-c` command-line converter.
+- `implementations/c/tests`: Throw The Switch Unity unit and conformance tests.
+- `implementations/dotnet/Sdaf`: C# record model, CRC-32C, schema parser and validator, sample decoder, encoder, and Zstandard transforms.
+- `implementations/dotnet/Sdaf.Cli`: `sdaf` command-line converter for JSON, CBOR, and long-form CSV.
+- `implementations/dotnet/Sdaf.Tests`: TUnit unit, round-trip, CLI, and bundled conformance-fixture tests.
 
 The decoder supports leading and trailing payload CRCs, both sample layouts, dense and byte-aligned packing, all timestamp modes, schema metadata, `TEXT`, `BLOB`, `INDX`, `END!`, `NOTE`, Zstandard-only records, and the complete delta/zigzag/byte-shuffle/Zstandard numeric profile. Unknown record types and unknown `DATA` transforms remain safely skippable.
 
@@ -19,19 +32,21 @@ The decoder supports leading and trailing payload CRCs, both sample layouts, den
 The CMake build requires a C99 compiler. It detects `libzstd` with pkg-config. The first test configuration downloads the pinned official Unity v2.7.0 release with CMake `FetchContent`.
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake -S implementations/c -B implementations/c/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build implementations/c/build
+ctest --test-dir implementations/c/build --output-on-failure
 ```
+
+CTest registers the Unity runner as one aggregate test named `sdaf_c_tests`; that executable runs the individual Unity cases. Use `ctest --test-dir implementations/c/build --verbose` or run `implementations/c/build/sdaf_c_tests` directly to see every case.
 
 Disable tests with `-DSDAF_BUILD_TESTS=OFF`. A baseline build without `libzstd` still reads and writes uncompressed SDAF and safely retains supported-envelope records containing unavailable transforms without presenting them as corrupt. Compression-writing functions return `SDAF_ERROR_UNSUPPORTED` when Zstandard was not built.
 
 Run the C CLI with the same output choices as the .NET tool:
 
 ```sh
-build/sdaf-c decode capture.sdaf --format json --output capture.json
-build/sdaf-c decode capture.sdaf --format cbor --output capture.cbor
-build/sdaf-c decode capture.sdaf --format csv --output samples.csv
+implementations/c/build/sdaf-c decode capture.sdaf --format json --output capture.json
+implementations/c/build/sdaf-c decode capture.sdaf --format cbor --output capture.cbor
+implementations/c/build/sdaf-c decode capture.sdaf --format csv --output samples.csv
 ```
 
 The C decoder API consumes a memory range or file and owns every allocation in the resulting `sdaf_document`:
@@ -60,19 +75,22 @@ The default `sdaf_limits` follow the draft’s desktop guidance and can be reduc
 
 ## Build and test C#
 
+Run the .NET commands from its implementation directory so the .NET 10 SDK picks up the colocated `global.json` configuration:
+
 ```sh
+cd implementations/dotnet
 dotnet build Sdaf.slnx
 dotnet test --solution Sdaf.slnx
 ```
 
-The test project uses TUnit on Microsoft.Testing.Platform. The repository's `global.json` selects that runner for the .NET 10 `dotnet test` command.
+The test project uses TUnit on Microsoft.Testing.Platform. The `implementations/dotnet/global.json` file selects that runner for the .NET 10 `dotnet test` command.
 
 Zstandard support is provided through an AOT-safe source-generated P/Invoke binding. Systems that read or write Zstandard records need `libzstd` installed. Baseline uncompressed operation does not invoke it.
 
 To produce a native executable, select the runtime identifier for the target system:
 
 ```sh
-dotnet publish src/Sdaf.Cli/Sdaf.Cli.csproj -c Release -r linux-arm64
+dotnet publish Sdaf.Cli/Sdaf.Cli.csproj -c Release -r linux-arm64
 ```
 
 ## Decode with the CLI
