@@ -11,8 +11,8 @@
     <PackageReference Include="TUnit" Version="1.57.17" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Sdaf/Sdaf.csproj" />
-    <ProjectReference Include="../../src/Sdaf.Cli/Sdaf.Cli.csproj" />
-    <Content Include="../../sdaf-conformance/**/*.sdaf" Link="fixtures/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="../Sdaf/Sdaf.csproj" />
+    <ProjectReference Include="../Sdaf.Cli/Sdaf.Cli.csproj" />
+    <Content Include="../../../spec/sdaf-conformance/**/*.sdaf" Link="fixtures/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

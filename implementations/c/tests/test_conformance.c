@@ -6,7 +6,7 @@
 
 static void fixture_path(char* path, size_t size, const char* group, const char* name)
 {
-    (void)snprintf(path, size, "%s/sdaf-conformance/%s/%s", SDAF_SOURCE_DIR, group, name);
+    (void)snprintf(path, size, "%s/../../spec/sdaf-conformance/%s/%s", SDAF_SOURCE_DIR, group, name);
 }
 
 static void assert_minimal(const char* name, int trailer)

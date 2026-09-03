@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="src/Sdaf/Sdaf.csproj" />
-  <Project Path="src/Sdaf.Cli/Sdaf.Cli.csproj" />
-  <Project Path="tests/Sdaf.Tests/Sdaf.Tests.csproj" />
-</Solution>

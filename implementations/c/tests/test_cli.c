@@ -8,7 +8,7 @@ static void load_fixture(sdaf_document* document)
 {
     char path[512];
     (void)snprintf(
-        path, sizeof(path), "%s/sdaf-conformance/valid/minimal-leading.sdaf", SDAF_SOURCE_DIR);
+        path, sizeof(path), "%s/../../spec/sdaf-conformance/valid/minimal-leading.sdaf", SDAF_SOURCE_DIR);
     TEST_ASSERT_EQUAL_INT(SDAF_OK, sdaf_decode_file(path, NULL, document));
 }
 
