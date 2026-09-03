@@ -1,25 +1,23 @@
-using NUnit.Framework;
-
 namespace Sdaf.Tests;
 
-[TestFixture]
 public class CodecTests
 {
     [Test]
-    public void Crc32CKnownVectors()
+    public async Task Crc32CKnownVectors()
     {
-        Assert.Multiple(() =>
+        using (Assert.Multiple())
         {
-            Assert.That(SdafCrc32C.Compute([]), Is.Zero);
-            Assert.That(SdafCrc32C.Compute("123456789"u8), Is.EqualTo(0xe3069283u));
-        });
+            await Assert.That(SdafCrc32C.Compute([])).IsEqualTo(0U);
+            await Assert.That(SdafCrc32C.Compute("123456789"u8)).IsEqualTo(0xe3069283u);
+        }
     }
 
-    [TestCase(SdafCompression.None, false)]
-    [TestCase(SdafCompression.None, true)]
-    [TestCase(SdafCompression.Zstandard, false)]
-    [TestCase(SdafCompression.CompressedNumeric, false)]
-    public void WriterReaderRoundTripData(SdafCompression compression, bool trailer)
+    [Test]
+    [Arguments(SdafCompression.None, false)]
+    [Arguments(SdafCompression.None, true)]
+    [Arguments(SdafCompression.Zstandard, false)]
+    [Arguments(SdafCompression.CompressedNumeric, false)]
+    public async Task WriterReaderRoundTripData(SdafCompression compression, bool trailer)
     {
         using var stream = new MemoryStream();
         using (var writer = new SdafWriter(stream, 123, Enumerable.Range(0, 16).Select(x => (byte)x).ToArray(), true))
@@ -39,17 +37,17 @@ public class CodecTests
         List<SdafRecord> records = reader.ReadRecords().ToList();
         SdafDataRecord data = records.OfType<SdafDataRecord>().Single();
         IReadOnlyList<SdafSample> samples = data.Samples!;
-        Assert.Multiple(() =>
+        using (Assert.Multiple())
         {
-            Assert.That(samples.SelectMany(x => x.Values).Select(x => x.RawUnsigned), Is.EqualTo(new ulong[] { 0, 4095, 291, 1110, 2748, 1929 }));
-            Assert.That(samples.Select(x => x.TimeTicks), Is.EqualTo(new long?[] { 100, 102, 104 }));
-            Assert.That(data.Envelope.PayloadCrcInTrailer, Is.EqualTo(trailer));
-            Assert.That(records[^1], Is.TypeOf<SdafEndRecord>());
-        });
+            await Assert.That(samples.SelectMany(x => x.Values).Select(x => x.RawUnsigned)).IsEquivalentTo(new ulong[] { 0, 4095, 291, 1110, 2748, 1929 }, CollectionOrdering.Matching);
+            await Assert.That(samples.Select(x => x.TimeTicks)).IsEquivalentTo(new long?[] { 100, 102, 104 }, CollectionOrdering.Matching);
+            await Assert.That(data.Envelope.PayloadCrcInTrailer).IsEqualTo(trailer);
+            await Assert.That(records[^1]).IsTypeOf<SdafEndRecord>();
+        }
     }
 
     [Test]
-    public void RoundTripsTextBlobNoteIndexAndPrivateRecord()
+    public async Task RoundTripsTextBlobNoteIndexAndPrivateRecord()
     {
         using var stream = new MemoryStream();
         using (var writer = new SdafWriter(stream, leaveOpen: true))
@@ -65,23 +63,23 @@ public class CodecTests
         stream.Position = 0;
         using var reader = new SdafReader(stream);
         List<SdafRecord> records = reader.ReadRecords().ToList();
-        Assert.Multiple(() =>
+        using (Assert.Multiple())
         {
-            Assert.That(records.OfType<SdafTextRecord>().Single().Message, Is.EqualTo("µ warning"));
-            Assert.That(records.OfType<SdafBlobRecord>().Single().DecodedPayload, Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
-            Assert.That(records.OfType<SdafNoteRecord>().Single().Message, Is.EqualTo("hello"));
-            Assert.That(records.OfType<SdafIndexRecord>().Single().Entries[0].ItemIndexOrSampleIndex(), Is.EqualTo(42));
-            Assert.That(records.OfType<SdafUnknownRecord>().Single().Payload, Is.EqualTo(new byte[] { 3, 4 }));
-        });
+            await Assert.That(records.OfType<SdafTextRecord>().Single().Message).IsEqualTo("µ warning");
+            await Assert.That(records.OfType<SdafBlobRecord>().Single().DecodedPayload).IsEquivalentTo(new byte[] { 1, 2, 3, 4 }, CollectionOrdering.Matching);
+            await Assert.That(records.OfType<SdafNoteRecord>().Single().Message).IsEqualTo("hello");
+            await Assert.That(records.OfType<SdafIndexRecord>().Single().Entries[0].ItemIndexOrSampleIndex()).IsEqualTo(42UL);
+            await Assert.That(records.OfType<SdafUnknownRecord>().Single().Payload).IsEquivalentTo(new byte[] { 3, 4 }, CollectionOrdering.Matching);
+        }
     }
 
     [Test]
-    public void ReaderLimitIsAppliedBeforePayloadAllocation()
+    public async Task ReaderLimitIsAppliedBeforePayloadAllocation()
     {
-        string fixture = Path.Combine(TestContext.CurrentContext.TestDirectory, "fixtures", "valid", "minimal-leading.sdaf");
+        string fixture = Path.Combine(AppContext.BaseDirectory, "fixtures", "valid", "minimal-leading.sdaf");
         using var stream = File.OpenRead(fixture);
         using var reader = new SdafReader(stream, new SdafLimits { MaxPayloadSize = 8 });
-        Assert.Throws<SdafFormatException>(() => reader.ReadRecords().ToList());
+        await Assert.That(() => { _ = reader.ReadRecords().ToList(); }).Throws<SdafFormatException>();
     }
 
     private static SdafSchema TwoChannelSchema() => new(1, 1,

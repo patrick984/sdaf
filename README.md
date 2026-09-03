@@ -6,7 +6,7 @@ This repository contains C99 and .NET 10 encoders, decoders, and command-line co
 
 - `src/Sdaf`: record model, CRC-32C, schema parser and validator, sample decoder, encoder, and Zstandard transforms.
 - `src/Sdaf.Cli`: `sdaf` command-line converter for JSON, CBOR, and long-form CSV.
-- `tests/Sdaf.Tests`: NUnit unit, round-trip, CLI, and bundled conformance-fixture tests.
+- `tests/Sdaf.Tests`: TUnit unit, round-trip, CLI, and bundled conformance-fixture tests.
 - `c/include/sdaf`: public C99 API.
 - `c/src`: C99 CRC, schema, codec, decoder, and encoder implementation.
 - `c/cli`: `sdaf-c` command-line converter.
@@ -62,8 +62,10 @@ The default `sdaf_limits` follow the draft’s desktop guidance and can be reduc
 
 ```sh
 dotnet build Sdaf.slnx
-dotnet test Sdaf.slnx
+dotnet test --solution Sdaf.slnx
 ```
+
+The test project uses TUnit on Microsoft.Testing.Platform. The repository's `global.json` selects that runner for the .NET 10 `dotnet test` command.
 
 Zstandard support is provided through an AOT-safe source-generated P/Invoke binding. Systems that read or write Zstandard records need `libzstd` installed. Baseline uncompressed operation does not invoke it.
 

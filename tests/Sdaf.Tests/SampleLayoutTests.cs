@@ -1,12 +1,9 @@
-using NUnit.Framework;
-
 namespace Sdaf.Tests;
 
-[TestFixture]
 public class SampleLayoutTests
 {
     [Test]
-    public void ByteAlignedMixedTypesIncludeWideFixedBytes()
+    public async Task ByteAlignedMixedTypesIncludeWideFixedBytes()
     {
         byte[] fixedBytes = Enumerable.Range(0, 16).Select(x => (byte)x).ToArray();
         byte[] payload = new byte[2 + 4 + 1 + fixedBytes.Length];
@@ -18,29 +15,29 @@ public class SampleLayoutTests
             Packing = SdafPacking.ByteAligned, Layout = SdafLayout.Interleaved,
         }, payload);
         IReadOnlyList<SdafSampleValue> values = data.Samples![0].Values;
-        Assert.Multiple(() =>
+        using (Assert.Multiple())
         {
-            Assert.That(values[0].RawSigned, Is.EqualTo(-1));
-            Assert.That(values[1].NumericValue, Is.EqualTo(1.5));
-            Assert.That(values[2].RawUnsigned, Is.EqualTo(1));
-            Assert.That(values[3].Bytes, Is.EqualTo(fixedBytes));
-        });
+            await Assert.That(values[0].RawSigned).IsEqualTo(-1L);
+            await Assert.That(values[1].NumericValue).IsEqualTo(1.5);
+            await Assert.That(values[2].RawUnsigned).IsEqualTo(1UL);
+            await Assert.That(values[3].Bytes).IsEquivalentTo(fixedBytes, CollectionOrdering.Matching);
+        }
     }
 
     [Test]
-    public void PlanarLayoutIsReassembledIntoSamples()
+    public async Task PlanarLayoutIsReassembledIntoSamples()
     {
         SdafDataRecord data = RoundTrip(TwoByteChannels(), new SdafDataWriteOptions
         {
             SchemaId = 11, StreamId = 1, SampleCount = 2, TimestampMode = SdafTimestampMode.None,
             Packing = SdafPacking.ByteAligned, Layout = SdafLayout.Planar,
         }, [1, 2, 10, 20]);
-        Assert.That(data.Samples!.Select(s => s.Values.Select(v => v.RawUnsigned).ToArray()),
-            Is.EqualTo(new[] { new ulong[] { 1, 10 }, new ulong[] { 2, 20 } }));
+        await Assert.That(data.Samples!.SelectMany(s => s.Values.Select(v => v.RawUnsigned)))
+            .IsEquivalentTo(new ulong[] { 1, 10, 2, 20 }, CollectionOrdering.Matching);
     }
 
     [Test]
-    public void DeltaTimestampsAreRelativeToStart()
+    public async Task DeltaTimestampsAreRelativeToStart()
     {
         byte[] payload = new byte[18];
         System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(payload, 0);
@@ -52,11 +49,11 @@ public class SampleLayoutTests
             TimestampMode = SdafTimestampMode.Delta, TimestampBytes = 16,
             Packing = SdafPacking.ByteAligned,
         }, payload);
-        Assert.That(data.Samples!.Select(x => x.TimeTicks), Is.EqualTo(new long?[] { 100, 107 }));
+        await Assert.That(data.Samples!.Select(x => x.TimeTicks)).IsEquivalentTo(new long?[] { 100, 107 }, CollectionOrdering.Matching);
     }
 
     [Test]
-    public void ExplicitTimestampsAreAbsolute()
+    public async Task ExplicitTimestampsAreAbsolute()
     {
         byte[] payload = new byte[18];
         System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(payload, -5);
@@ -68,11 +65,11 @@ public class SampleLayoutTests
             TimestampMode = SdafTimestampMode.Explicit, TimestampBytes = 16,
             Packing = SdafPacking.ByteAligned,
         }, payload);
-        Assert.That(data.Samples!.Select(x => x.TimeTicks), Is.EqualTo(new long?[] { -5, 25 }));
+        await Assert.That(data.Samples!.Select(x => x.TimeTicks)).IsEquivalentTo(new long?[] { -5, 25 }, CollectionOrdering.Matching);
     }
 
     [Test]
-    public void NonzeroDensePaddingIsRejected()
+    public async Task NonzeroDensePaddingIsRejected()
     {
         using var stream = new MemoryStream();
         using (var writer = new SdafWriter(stream, leaveOpen: true))
@@ -85,7 +82,7 @@ public class SampleLayoutTests
             writer.WriteData(new SdafDataWriteOptions { SchemaId = 13, StreamId = 1, SampleCount = 1, TimestampMode = SdafTimestampMode.None }, [0xfe]);
         }
         stream.Position = 0; using var reader = new SdafReader(stream);
-        Assert.Throws<SdafFormatException>(() => reader.ReadRecords().ToList());
+        await Assert.That(() => { _ = reader.ReadRecords().ToList(); }).Throws<SdafFormatException>();
     }
 
     private static SdafDataRecord RoundTrip(SdafSchema schema, SdafDataWriteOptions options, byte[] payload)
