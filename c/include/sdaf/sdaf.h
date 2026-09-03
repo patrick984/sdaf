@@ -72,10 +72,7 @@ typedef enum sdaf_timestamp_mode {
     SDAF_TIMESTAMP_NONE = 4
 } sdaf_timestamp_mode;
 
-typedef enum sdaf_layout {
-    SDAF_LAYOUT_INTERLEAVED = 1,
-    SDAF_LAYOUT_PLANAR = 2
-} sdaf_layout;
+typedef enum sdaf_layout { SDAF_LAYOUT_INTERLEAVED = 1, SDAF_LAYOUT_PLANAR = 2 } sdaf_layout;
 
 typedef enum sdaf_packing {
     SDAF_PACKING_LSB0_DENSE = 1,
@@ -110,42 +107,42 @@ typedef struct sdaf_tlv {
     uint16_t tag;
     uint8_t wire_type;
     uint32_t size;
-    uint8_t *value;
+    uint8_t* value;
 } sdaf_tlv;
 
 typedef struct sdaf_schema_object {
     uint8_t kind;
     uint32_t id;
     size_t tlv_count;
-    sdaf_tlv *tlvs;
+    sdaf_tlv* tlvs;
 } sdaf_schema_object;
 
 typedef struct sdaf_schema {
     uint32_t id;
     uint32_t revision;
     size_t object_count;
-    sdaf_schema_object *objects;
+    sdaf_schema_object* objects;
 } sdaf_schema;
 
 typedef struct sdaf_transform {
     uint16_t id;
     uint8_t version;
     uint32_t parameter_size;
-    uint8_t *parameters;
+    uint8_t* parameters;
 } sdaf_transform;
 
 typedef struct sdaf_sample_value {
     uint32_t channel_id;
-    const char *channel_name;
+    const char* channel_name;
     uint32_t element_index;
     uint8_t logical_type;
     uint64_t raw_unsigned;
     int64_t raw_signed;
     double numeric_value;
     double physical_value;
-    uint8_t *bytes;
+    uint8_t* bytes;
     size_t byte_count;
-    const char *unit;
+    const char* unit;
 } sdaf_sample_value;
 
 typedef struct sdaf_sample {
@@ -153,7 +150,7 @@ typedef struct sdaf_sample {
     int has_time;
     int64_t time_ticks;
     size_t value_count;
-    sdaf_sample_value *values;
+    sdaf_sample_value* values;
 } sdaf_sample;
 
 typedef struct sdaf_record_envelope {
@@ -182,12 +179,12 @@ typedef struct sdaf_data_record {
     uint32_t timestamp_bytes;
     uint64_t decoded_sample_bytes;
     size_t transform_count;
-    sdaf_transform *transforms;
-    uint8_t *stored_payload;
+    sdaf_transform* transforms;
+    uint8_t* stored_payload;
     size_t stored_payload_size;
-    uint8_t *decoded_payload;
+    uint8_t* decoded_payload;
     size_t decoded_payload_size;
-    sdaf_sample *samples;
+    sdaf_sample* samples;
 } sdaf_data_record;
 
 typedef struct sdaf_text_record {
@@ -200,7 +197,7 @@ typedef struct sdaf_text_record {
     uint32_t source_id;
     int has_event_code;
     int32_t event_code;
-    char *message;
+    char* message;
     size_t message_size;
 } sdaf_text_record;
 
@@ -212,10 +209,10 @@ typedef struct sdaf_blob_record {
     int64_t time_ticks;
     uint64_t decoded_bytes;
     size_t transform_count;
-    sdaf_transform *transforms;
-    uint8_t *stored_payload;
+    sdaf_transform* transforms;
+    uint8_t* stored_payload;
     size_t stored_payload_size;
-    uint8_t *decoded_payload;
+    uint8_t* decoded_payload;
     size_t decoded_payload_size;
 } sdaf_blob_record;
 
@@ -236,17 +233,32 @@ typedef struct sdaf_record {
         sdaf_data_record data;
         sdaf_text_record text;
         sdaf_blob_record blob;
-        struct { size_t entry_count; sdaf_index_entry *entries; } index;
-        struct { uint64_t total_records; uint64_t total_data_records; uint64_t last_index_offset; } end;
-        struct { char *message; size_t size; } note;
-        struct { uint8_t *type_header; size_t type_header_size; uint8_t *payload; size_t payload_size; } unknown;
+        struct {
+            size_t entry_count;
+            sdaf_index_entry* entries;
+        } index;
+        struct {
+            uint64_t total_records;
+            uint64_t total_data_records;
+            uint64_t last_index_offset;
+        } end;
+        struct {
+            char* message;
+            size_t size;
+        } note;
+        struct {
+            uint8_t* type_header;
+            size_t type_header_size;
+            uint8_t* payload;
+            size_t payload_size;
+        } unknown;
     } value;
 } sdaf_record;
 
 typedef struct sdaf_document {
     sdaf_file_header header;
     size_t record_count;
-    sdaf_record *records;
+    sdaf_record* records;
     sdaf_status status;
     uint64_t error_offset;
     char error[192];
@@ -293,7 +305,7 @@ typedef struct sdaf_blob_info {
 } sdaf_blob_info;
 
 typedef struct sdaf_encoder {
-    uint8_t *data;
+    uint8_t* data;
     size_t size;
     size_t capacity;
     uint32_t next_sequence;
@@ -303,34 +315,46 @@ typedef struct sdaf_encoder {
     char error[192];
 } sdaf_encoder;
 
-void sdaf_limits_default(sdaf_limits *limits);
-const char *sdaf_status_string(sdaf_status status);
-uint32_t sdaf_crc32c(const void *data, size_t size);
+void sdaf_limits_default(sdaf_limits* limits);
+const char* sdaf_status_string(sdaf_status status);
+uint32_t sdaf_crc32c(const void* data, size_t size);
 
-sdaf_status sdaf_decode(const void *data, size_t size, const sdaf_limits *limits, sdaf_document *document);
-sdaf_status sdaf_decode_file(const char *path, const sdaf_limits *limits, sdaf_document *document);
-void sdaf_document_free(sdaf_document *document);
+sdaf_status sdaf_decode(
+    const void* data, size_t size, const sdaf_limits* limits, sdaf_document* document);
+sdaf_status sdaf_decode_file(const char* path, const sdaf_limits* limits, sdaf_document* document);
+void sdaf_document_free(sdaf_document* document);
 
-const sdaf_tlv *sdaf_object_find_tlv(const sdaf_schema_object *object, uint16_t tag, size_t occurrence);
-const sdaf_schema_object *sdaf_schema_find_object(const sdaf_schema *schema, uint8_t kind, uint32_t id);
-int sdaf_tlv_u8(const sdaf_tlv *tlv, uint8_t *value);
-int sdaf_tlv_u16(const sdaf_tlv *tlv, uint16_t *value);
-int sdaf_tlv_u32(const sdaf_tlv *tlv, uint32_t *value);
-int sdaf_tlv_u64(const sdaf_tlv *tlv, uint64_t *value);
-int sdaf_tlv_i64(const sdaf_tlv *tlv, int64_t *value);
-int sdaf_tlv_f64(const sdaf_tlv *tlv, double *value);
+const sdaf_tlv* sdaf_object_find_tlv(
+    const sdaf_schema_object* object, uint16_t tag, size_t occurrence);
+const sdaf_schema_object* sdaf_schema_find_object(
+    const sdaf_schema* schema, uint8_t kind, uint32_t id);
+int sdaf_tlv_u8(const sdaf_tlv* tlv, uint8_t* value);
+int sdaf_tlv_u16(const sdaf_tlv* tlv, uint16_t* value);
+int sdaf_tlv_u32(const sdaf_tlv* tlv, uint32_t* value);
+int sdaf_tlv_u64(const sdaf_tlv* tlv, uint64_t* value);
+int sdaf_tlv_i64(const sdaf_tlv* tlv, int64_t* value);
+int sdaf_tlv_f64(const sdaf_tlv* tlv, double* value);
 
-sdaf_status sdaf_encoder_init(sdaf_encoder *encoder, int64_t created_unix_ns, const uint8_t file_uuid[16]);
-void sdaf_encoder_free(sdaf_encoder *encoder);
-sdaf_status sdaf_encoder_write_schema(sdaf_encoder *encoder, const sdaf_schema *schema, int trailer_crc);
-sdaf_status sdaf_encoder_write_data(sdaf_encoder *encoder, const sdaf_schema *schema, const sdaf_data_info *info, const void *canonical_payload, size_t payload_size);
-sdaf_status sdaf_encoder_write_text(sdaf_encoder *encoder, const sdaf_text_info *info, const char *message, size_t message_size);
-sdaf_status sdaf_encoder_write_blob(sdaf_encoder *encoder, const sdaf_blob_info *info, const void *decoded_payload, size_t payload_size);
-sdaf_status sdaf_encoder_write_note(sdaf_encoder *encoder, const char *message, size_t message_size, int trailer_crc);
-sdaf_status sdaf_encoder_write_index(sdaf_encoder *encoder, const sdaf_index_entry *entries, size_t entry_count, int trailer_crc);
-sdaf_status sdaf_encoder_write_end(sdaf_encoder *encoder, uint64_t last_index_offset);
-sdaf_status sdaf_encoder_write_private(sdaf_encoder *encoder, uint16_t record_type, const void *type_header, size_t type_header_size, const void *payload, size_t payload_size, int trailer_crc);
-sdaf_status sdaf_encoder_write_file(const sdaf_encoder *encoder, const char *path);
+sdaf_status sdaf_encoder_init(
+    sdaf_encoder* encoder, int64_t created_unix_ns, const uint8_t file_uuid[16]);
+void sdaf_encoder_free(sdaf_encoder* encoder);
+sdaf_status sdaf_encoder_write_schema(
+    sdaf_encoder* encoder, const sdaf_schema* schema, int trailer_crc);
+sdaf_status sdaf_encoder_write_data(sdaf_encoder* encoder, const sdaf_schema* schema,
+    const sdaf_data_info* info, const void* canonical_payload, size_t payload_size);
+sdaf_status sdaf_encoder_write_text(
+    sdaf_encoder* encoder, const sdaf_text_info* info, const char* message, size_t message_size);
+sdaf_status sdaf_encoder_write_blob(sdaf_encoder* encoder, const sdaf_blob_info* info,
+    const void* decoded_payload, size_t payload_size);
+sdaf_status sdaf_encoder_write_note(
+    sdaf_encoder* encoder, const char* message, size_t message_size, int trailer_crc);
+sdaf_status sdaf_encoder_write_index(
+    sdaf_encoder* encoder, const sdaf_index_entry* entries, size_t entry_count, int trailer_crc);
+sdaf_status sdaf_encoder_write_end(sdaf_encoder* encoder, uint64_t last_index_offset);
+sdaf_status sdaf_encoder_write_private(sdaf_encoder* encoder, uint16_t record_type,
+    const void* type_header, size_t type_header_size, const void* payload, size_t payload_size,
+    int trailer_crc);
+sdaf_status sdaf_encoder_write_file(const sdaf_encoder* encoder, const char* path);
 
 #ifdef __cplusplus
 }
