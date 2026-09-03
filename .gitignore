@@ -3,3 +3,7 @@
 *.user
 *.suo
 .vs/
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/

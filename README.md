@@ -1,16 +1,64 @@
-# SDAF for C#
+# SDAF implementations
 
-This repository contains a .NET 10 encoder, decoder, and command-line converter for SDAF draft 0.4 (format version 1.0). The implementation is compatible with trimming and Native AOT and uses no reflection-based serialization.
+This repository contains C99 and .NET 10 encoders, decoders, and command-line converters for SDAF draft 0.4 (format version 1.0). The C implementation builds with a conforming C99 compiler. The C# implementation is compatible with trimming and Native AOT and uses no reflection-based serialization.
 
 ## Projects
 
 - `src/Sdaf`: record model, CRC-32C, schema parser and validator, sample decoder, encoder, and Zstandard transforms.
 - `src/Sdaf.Cli`: `sdaf` command-line converter for JSON, CBOR, and long-form CSV.
 - `tests/Sdaf.Tests`: NUnit unit, round-trip, CLI, and bundled conformance-fixture tests.
+- `c/include/sdaf`: public C99 API.
+- `c/src`: C99 CRC, schema, codec, decoder, and encoder implementation.
+- `c/cli`: `sdaf-c` command-line converter.
+- `c/tests`: Throw The Switch Unity unit and conformance tests.
 
 The decoder supports leading and trailing payload CRCs, both sample layouts, dense and byte-aligned packing, all timestamp modes, schema metadata, `TEXT`, `BLOB`, `INDX`, `END!`, `NOTE`, Zstandard-only records, and the complete delta/zigzag/byte-shuffle/Zstandard numeric profile. Unknown record types and unknown `DATA` transforms remain safely skippable.
 
-## Build and test
+## Build and test C99
+
+The CMake build requires a C99 compiler. It detects `libzstd` with pkg-config. The first test configuration downloads the pinned official Unity v2.7.0 release with CMake `FetchContent`.
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Disable tests with `-DSDAF_BUILD_TESTS=OFF`. A baseline build without `libzstd` still reads and writes uncompressed SDAF and safely retains supported-envelope records containing unavailable transforms without presenting them as corrupt. Compression-writing functions return `SDAF_ERROR_UNSUPPORTED` when Zstandard was not built.
+
+Run the C CLI with the same output choices as the .NET tool:
+
+```sh
+build/sdaf-c decode capture.sdaf --format json --output capture.json
+build/sdaf-c decode capture.sdaf --format cbor --output capture.cbor
+build/sdaf-c decode capture.sdaf --format csv --output samples.csv
+```
+
+The C decoder API consumes a memory range or file and owns every allocation in the resulting `sdaf_document`:
+
+```c
+#include <sdaf/sdaf.h>
+
+sdaf_document document;
+sdaf_status status = sdaf_decode_file("capture.sdaf", NULL, &document);
+if (status == SDAF_OK) {
+    size_t i;
+    for (i = 0; i < document.record_count; ++i) {
+        const sdaf_record *record = &document.records[i];
+        if (record->envelope.type == SDAF_RECORD_DATA &&
+            record->value.data.samples != NULL) {
+            /* Consume record->value.data.samples here. */
+        }
+    }
+}
+sdaf_document_free(&document);
+```
+
+On a complete malformed record, `sdaf_decode` returns an error while leaving earlier valid records in the document for inspection. An incomplete final record returns `SDAF_OK` and is omitted. Always call `sdaf_document_free`, including after an error. `sdaf_encoder_init` creates an in-memory output buffer; call the type-specific write functions, then use `sdaf_encoder_write_file` or the `data`/`size` members, and finally call `sdaf_encoder_free`.
+
+The default `sdaf_limits` follow the draft’s desktop guidance and can be reduced before decoding. Limit failures use `SDAF_ERROR_LIMIT`, separately from malformed input. Schema TLV byte buffers supplied to the encoder remain owned by the caller.
+
+## Build and test C#
 
 ```sh
 dotnet build Sdaf.slnx
