@@ -1,6 +1,6 @@
 # SDAF: Self-Describing Data Acquisition Format
 
-Draft specification 0.4 — proposed format version 1.0
+Draft specification 0.5 — proposed format version 1.0
 
 Status: design draft, not yet stable
 
@@ -16,7 +16,7 @@ SDAF is a sequential, self-describing binary format for measurement and data-acq
 - extensible without making the version-1 decoder complex; and
 - sufficiently regular that an unfamiliar file can be investigated with a hex editor.
 
-Version 1 standardizes an uncompressed core, timestamped variable-length binary items, explicit clock descriptions and an optional compressed numeric profile. Compression and typed transforms are layered on independently decodable records. Baseline and embedded implementations are not required to implement compression.
+Version 1 standardizes an uncompressed core, timestamped variable-length binary items, explicit clock descriptions and optional compressed integer and bitwise numeric profiles. Compression and typed transforms are layered on independently decodable records. Baseline and embedded implementations are not required to implement compression.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are normative.
 
@@ -412,20 +412,21 @@ The following IDs are assigned or reserved:
 
 | ID | Transform | Version-1 status |
 | ---: | --- | --- |
-| 1 | Delta by typed field | Standard compressed numeric profile |
-| 2 | Zigzag signed-to-unsigned | Standard compressed numeric profile |
-| 3 | Byte shuffle | Standard compressed numeric profile |
+| 1 | Delta by typed field | Compressed integer numeric profile |
+| 2 | Zigzag signed-to-unsigned | Compressed integer numeric profile |
+| 3 | Byte shuffle | Compressed integer and bitwise numeric profiles |
 | 4 | Bit-plane transpose | Reserved for future specification |
+| 5 | Bitwise XOR by typed field | Compressed bitwise numeric profile |
 | 16 | Zstandard frame | Standard optional profile |
 | 17 | LZ4 frame | Reserved for future specification |
 
-Only identity (`transform_count = 0`) is required for baseline conformance. Version 1 defines transforms 1–3 only as members of the exact compressed numeric profile in section 8.5. A writer MUST NOT emit one of transforms 1–3 separately, omit one, repeat one, or place them in another order. This restriction keeps the initial interoperability and test surface small; a future minor version may define additional valid compositions.
+Only identity (`transform_count = 0`) is required for baseline conformance. Version 1 defines transforms 1–3 only as members of the exact compressed integer numeric profile in section 8.5, and transforms 3 and 5 as members of the exact compressed bitwise numeric profile in section 8.6. A writer MUST NOT emit transforms 1, 2, 3 or 5 separately, omit a required member, repeat one, or place them in another order. This restriction keeps the initial interoperability and test surface small; a future minor version may define additional valid compositions.
 
 Transform 4 remains reserved. Writers MUST NOT emit it until a bit-plane profile is standardized. Benchmarking found that delta, zigzag and bit-plane transpose reduced representative compressed payloads by only about 4% relative to the byte-shuffle profile, while substantially reducing decode throughput. Version 1 therefore favors the simpler and faster byte-shuffle profile.
 
-### 8.5 Compressed numeric profile
+### 8.5 Compressed integer numeric profile
 
-The standard compressed numeric profile is optional. It is intended for homogeneous integer acquisition streams and applies this exact pipeline:
+The compressed integer numeric profile is optional. It is intended for homogeneous integer acquisition streams and applies this exact pipeline:
 
 ```text
 canonical decoded payload
@@ -505,11 +506,82 @@ Here `logical_value_count` is `sample_count` multiplied by the sum of `elements_
 
 Transform 16 version 1 has no parameters. Its input is all bytes produced by the preceding transform, or the canonical decoded payload when Zstandard is the only transform. Its output is exactly one standard Zstandard frame. Frames are independent between records. Dictionaries and cross-record state are forbidden in version 1.
 
-When Zstandard is present it MUST be the final encoding transform. For Zstandard alone, its decompressed size MUST equal `decoded_sample_bytes`. For the compressed numeric profile, its decompressed size MUST equal the intermediate size given in section 8.5.3; inverse typed transforms then produce exactly `decoded_sample_bytes`. Implementations MUST reject any other size at either boundary.
+When Zstandard is present it MUST be the final encoding transform. For Zstandard alone, its decompressed size MUST equal `decoded_sample_bytes`. For the compressed integer numeric profile, its decompressed size MUST equal the intermediate size given in section 8.5.3. For the compressed bitwise numeric profile, its decompressed size MUST equal the intermediate size given in section 8.6.3. Inverse typed transforms then produce exactly `decoded_sample_bytes`. Implementations MUST reject any other size at either boundary.
 
-A buffered writer SHOULD emit the compressed profile only when the complete payload, including all transform descriptors, is smaller than the canonical untransformed payload. Otherwise it SHOULD emit untransformed dense data. This prevents incompressible ADC data from growing because of frame and descriptor overhead.
+A buffered writer SHOULD emit a compressed profile only when the complete payload, including all transform descriptors, is smaller than the canonical untransformed payload. Otherwise it SHOULD emit untransformed data. This prevents incompressible data from growing because of frame and descriptor overhead.
 
-### 8.6 Operational chunk-size guidance
+### 8.6 Compressed bitwise numeric profile
+
+The compressed bitwise numeric profile is optional. It is intended for homogeneous IEEE floating-point acquisition streams and applies this exact pipeline:
+
+```text
+canonical decoded payload
+→ per-field bitwise XOR
+→ 256-value byte shuffle
+→ Zstandard
+```
+
+The transform descriptor list MUST contain exactly IDs `5, 3, 16`, in that order. Every descriptor has version 1, flags zero and `parameter_size = 0`.
+
+A `DATA` record is eligible for this profile only when:
+
+- every channel has logical type IEEE float;
+- every scalar and fixed-array element has the same `(logical_bits, storage_bits)` pair;
+- that pair is either `(32, 32)` or `(64, 64)`;
+- the number of logical values is determinable from the schema and `sample_count`; and
+- the sample area contains no variable-length fields.
+
+All channels in one record are therefore either `f32` or `f64`; the profile does not mix the two widths. Each fixed-array element is a distinct field lane. Lanes are identified by channel ID followed by array-element index. Samples are visited in the record's declared layout order while predictor state remains independent per lane.
+
+The timestamp area is not processed by XOR or byte shuffle. It remains an unchanged prefix to the transformed sample area and is included with that area in the final Zstandard frame.
+
+#### 8.6.1 Bitwise XOR
+
+Transform 5 operates on the exact IEEE bit pattern of each floating-point value, interpreted as an unsigned 32-bit or 64-bit word solely for the XOR operation. It MUST NOT perform floating-point subtraction, conversion, normalization or canonicalization.
+
+The transform maintains one previous word for each field lane. All previous words are initialized to all-zero bits at the beginning of every `DATA` record; no state crosses a record boundary.
+
+Encoding is:
+
+```text
+xor_word = current_word XOR previous_word
+previous_word = current_word
+```
+
+Decoding is:
+
+```text
+current_word = xor_word XOR previous_word
+previous_word = current_word
+```
+
+The reconstructed word is stored unchanged as the channel's IEEE value. This preserves every representation exactly, including positive and negative zero, infinities, subnormal values and NaN payload bits.
+
+#### 8.6.2 Byte shuffle
+
+Each XOR word is serialized into four bytes for `f32` or eight bytes for `f64`, least-significant byte first. Values are divided in declared layout order into blocks of 256 values. The final block is not padded.
+
+Within each block, byte shuffle is exactly the transpose defined in section 8.5.3: byte zero from every word, then byte one from every word, continuing through byte three or byte seven. Blocks are concatenated without padding.
+
+#### 8.6.3 Intermediate size and Zstandard
+
+The complete pre-Zstandard byte count is exactly:
+
+```text
+timestamp_bytes + logical_value_count * (logical_bits / 8)
+```
+
+Here `logical_value_count` is `sample_count` multiplied by the sum of `elements_per_sample` over all channels in the stream. A decoder MUST validate both multiplications and the final addition for integer overflow before allocating or decompressing.
+
+Transform 16 then encodes the complete intermediate byte sequence as one independent Zstandard frame under the rules of section 8.5.4. Inverse XOR and byte shuffle MUST reconstruct exactly `decoded_sample_bytes` canonical bytes.
+
+#### 8.6.4 Optional-channel note
+
+Version 1 does not include presence-mask fields or missing-channel fill semantics in the compressed bitwise numeric profile. In particular, adding an integer presence-mask channel makes a record ineligible because every channel is required to be IEEE float.
+
+A future version may investigate homogeneous-width presence words and a deterministic repeat-previous-value rule for absent lanes. Such a design must specify bitmap-to-channel mapping, initialization at record boundaries, interaction with XOR state and generic-reader behavior. Writers MUST NOT infer those semantics from an ordinary integer or floating-point channel in version 1.
+
+### 8.7 Operational chunk-size guidance
 
 Chunk size is not part of the wire-format profile. Benchmarks found little additional compression benefit beyond 4,096 samples per channel. Writers SHOULD normally use between 1,024 and 16,384 samples per channel, with 4,096 as a reasonable starting point. Smaller records improve latency and corruption isolation; larger records reduce fixed record overhead. Applications MAY choose sizes outside this range.
 
@@ -557,7 +629,7 @@ A `BLOB` record has a 48-byte type-specific header, making `header_size = 80`:
 
 `schema_id`, `schema_revision` and `stream_id` MUST all be nonzero. The referenced stream MUST have `stream_kind = 3` and `channel_count = 0`. `item_index` is strictly increasing within a stream but need not begin at zero. `time_ticks` uses the stream's Clock object or its inline time-domain tags. `INT64_MIN` denotes an item for which no acquisition time is known.
 
-The payload begins with `transform_count` descriptors in the format of section 8.4, followed by the encoded item bytes. Version 1 permits either no transform or exactly one transform 16 Zstandard descriptor. Typed transforms 1–3 MUST NOT be applied to `BLOB`.
+The payload begins with `transform_count` descriptors in the format of section 8.4, followed by the encoded item bytes. Version 1 permits either no transform or exactly one transform 16 Zstandard descriptor. Typed transforms 1–5 MUST NOT be applied to `BLOB`.
 
 With no transform, the bytes following the descriptor area have length `decoded_bytes`. With Zstandard, they are one independent standard frame whose decompressed size MUST equal `decoded_bytes`. Dictionaries and cross-record state are forbidden. The payload CRC covers descriptors and encoded bytes. A writer SHOULD use Zstandard only when the complete payload is smaller than the uncompressed representation.
 
@@ -627,11 +699,13 @@ A logger SHOULD flush complete record boundaries to durable storage. It SHOULD N
 
 **Zstandard reader/writer:** additionally supports transform 16 version 1.
 
-**Compressed numeric profile writer/reader:** additionally supports the exact transform chain in section 8.5, including its eligibility checks, independent per-record delta state, zigzag mapping, 256-value byte shuffle and Zstandard framing.
+**Compressed integer numeric profile writer/reader:** additionally supports the exact transform chain in section 8.5, including its eligibility checks, independent per-record delta state, zigzag mapping, 256-value byte shuffle and Zstandard framing.
+
+**Compressed bitwise numeric profile writer/reader:** additionally supports the exact transform chain in section 8.6, including its floating-point eligibility checks, independent per-record XOR state, exact IEEE bit preservation, 256-value byte shuffle and Zstandard framing.
 
 **Binary-item writer/reader:** writes or reads `BLOB` records, including uncompressed items. Zstandard-compressed BLOB items additionally require the Zstandard class.
 
-The compressed numeric profile is optional for all implementations. In particular, an embedded implementation MAY conform as a baseline writer, baseline reader or streaming writer without linking Zstandard or implementing transforms 1–3. A reader that does not support the profile can still identify and skip its records using the common envelope and transform descriptors.
+Both compressed numeric profiles are optional for all implementations. In particular, an embedded implementation MAY conform as a baseline writer, baseline reader or streaming writer without linking Zstandard or implementing typed transforms. A reader that does not support a profile can still identify and skip its records using the common envelope and transform descriptors.
 
 Clock, Value map and Bitfield schema objects are baseline-reader metadata. A baseline reader MUST parse or skip their TLVs safely and preserve their IDs when presenting schema information, but it need not perform clock correlation or render symbolic enum and bitfield values. Implementations MAY expose those higher-level interpretations as capabilities rather than separate conformance classes.
 
@@ -740,11 +814,20 @@ For Zstandard as the only transform, the stored payload is:
 
 The first eight bytes are the transform descriptor: ID 16, version 1, flags 0, parameter size 0. `payload_size` includes both descriptor and frame. Whichever CRC placement is selected, the payload CRC covers both the descriptor and frame. `decoded_sample_bytes` is the size of the decompressed frame and excludes the descriptor.
 
-For the compressed numeric profile, four eight-byte descriptors precede the frame:
+For the compressed integer numeric profile, four eight-byte descriptors precede the frame:
 
 ```text
 01 00 01 00 00 00 00 00
 02 00 01 00 00 00 00 00
+03 00 01 00 00 00 00 00
+10 00 01 00 00 00 00 00
+<one complete Zstandard frame>
+```
+
+For the compressed bitwise numeric profile, three eight-byte descriptors precede the frame:
+
+```text
+05 00 01 00 00 00 00 00
 03 00 01 00 00 00 00 00
 10 00 01 00 00 00 00 00
 <one complete Zstandard frame>
@@ -851,6 +934,38 @@ d3 00 0b 00 10 00 00 00
 
 This decodes as tag `0x00d3`, `rational_i64`, flags zero, value size 16, signed numerator 1 and unsigned denominator 1048576.
 
+### 14.13 Floating-point XOR and byte-shuffle vector
+
+Consider an interleaved two-channel `f32` stream with three samples. The table gives both the numeric values and their exact IEEE binary32 words:
+
+| Sample | channel 0 | word | channel 1 | word |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | `1.0` | `3f800000` | `-2.0` | `c0000000` |
+| 1 | `1.5` | `3fc00000` | `-2.0` | `c0000000` |
+| 2 | `1.5` | `3fc00000` | `-2.5` | `c0200000` |
+
+With independent previous words initialized to zero, XOR produces these words in declared layout order:
+
+```text
+3f800000 c0000000 00400000 00000000 00000000 00200000
+```
+
+Their byte-aligned little-endian representation is:
+
+```text
+00 00 80 3f  00 00 00 c0  00 00 40 00
+00 00 00 00  00 00 00 00  00 00 20 00
+```
+
+The record has fewer than 256 values, so it forms one final partial shuffle block. Byte shuffling produces these normative pre-Zstandard bytes:
+
+```text
+00 00 00 00 00 00
+00 00 00 00 00 00
+80 00 40 00 00 20
+3f c0 00 00 00 00
+```
+
 ## 15. Machine-readable conformance suite
 
 The version-1 specification is accompanied by the `sdaf-conformance` suite. The suite is part of the version-1 interoperability material and contains:
@@ -863,7 +978,7 @@ The version-1 specification is accompanied by the `sdaf-conformance` suite. The 
 - `verify_fixtures.py`, which independently verifies hashes, CRCs, structure, transform decoding and expected outcomes; and
 - `sdaf-v1.ksy`, the non-normative Kaitai Struct description defined in section 15.3.
 
-The bundled suite version 1 freezes complete CRC-bearing file examples. Sections 14.1–14.12 remain normative byte-level examples; the valid fixtures add complete file and record envelopes around those encodings.
+The bundled suite version 2 freezes complete CRC-bearing file examples. Sections 14.1–14.13 remain normative byte-level examples; the valid fixtures add complete file and record envelopes around those encodings.
 
 ### 15.1 Valid fixtures
 
@@ -872,6 +987,8 @@ The bundled suite version 1 freezes complete CRC-bearing file examples. Sections
 | `minimal-leading.sdaf` | Two unsigned 12-bit ADC channels, dense packing and leading payload CRC |
 | `minimal-trailing.sdaf` | The same decoded ADC values using a payload CRC trailer |
 | `compressed-numeric.sdaf` | The exact delta, zigzag, 256-value byte-shuffle and Zstandard profile from section 8.5 |
+| `compressed-bitwise-f32.sdaf` | The exact IEEE binary32 XOR, 256-value byte-shuffle and Zstandard profile from section 8.6 |
+| `compressed-bitwise-f64.sdaf` | IEEE binary64 profile, including exact negative-zero and NaN-payload preservation |
 | `rational-symbolic.sdaf` | Exact rational scale `1/100`, a Value map and a multi-member Bitfield |
 | `blob-uncompressed.sdaf` | Five decoded binary bytes stored without a transform |
 | `blob-zstd.sdaf` | The same five decoded binary bytes in one independent Zstandard frame |
@@ -888,7 +1005,7 @@ The suite includes faults covering:
 - trailer marker and repeated-sequence failures;
 - a truncated final common header and a truncated final payload;
 - a schema TLV whose declared value overruns its object;
-- a checksum-valid but forbidden transform order;
+- checksum-valid but forbidden integer and bitwise transform orders;
 - a checksum-valid Zstandard `BLOB` whose declared decoded size is wrong; and
 - a checksum-valid reserved common-envelope flag.
 
@@ -917,7 +1034,7 @@ If generated Kaitai code and this specification disagree, this specification and
 
 ## 16. Remaining open issues before version 1.0
 
-1. Validate the optional compressed numeric profile using real ADC captures. A microcontroller benchmark is desirable before considering the profile for any future embedded conformance requirement, but is not required for version 1 because the profile remains optional.
+1. Validate the optional compressed integer numeric profile using real ADC captures, and the compressed bitwise numeric profile using representative `f32` and `f64` acquisition streams. A microcontroller benchmark is desirable before considering either profile for any future embedded conformance requirement, but is not required for version 1 because both profiles remain optional.
 2. Validate the Clock, clock-correlation and `BLOB` designs using a real MRU capture containing a 32-bit timestamp wrap, UTC synchronization, diagnostic text, raw GNSS/RTCM data and at least one device restart.
 
 ## Appendix A: Embedded writer shape
@@ -958,7 +1075,7 @@ This appendix is informative. It describes the intended mapping for a motion ref
 
 Use one stream per stable decoded message family and set source-provenance tags when known. Fixed IMU, attitude, quaternion, navigation, GNSS position, velocity, DVL, ship-motion, odometer, depth and status messages map to `DATA`. Prefer separate scalar channels when vector components have distinct meanings, such as North/East/Down or quaternion W/X/Y/Z.
 
-Mixed-width or floating-point MRU streams MAY use identity or Zstandard alone. The compressed numeric profile applies only when its homogeneous-integer eligibility rules are met. A writer SHOULD NOT split a semantically atomic source message into several streams solely to qualify for that compression profile.
+Mixed-width MRU streams MAY use identity or Zstandard alone. Homogeneous integer streams may use the compressed integer numeric profile, and homogeneous `f32` or homogeneous `f64` streams may use the compressed bitwise numeric profile. A writer SHOULD NOT split a semantically atomic source message into several streams solely to qualify for a compression profile.
 
 Identify the device timebase with a Clock object. A 32-bit microsecond-since-boot counter is described with a tick period of `1/1000000`, `counter_bits = 32` and boot/session reset scope. Store unwrapped `i64` ticks. Create a new clock and dependent streams after a device restart. Represent each reliable device-to-UTC or device-to-GPS observation in a clock-correlation `DATA` stream, including validity/status and uncertainty when available.
 
