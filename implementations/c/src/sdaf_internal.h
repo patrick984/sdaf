@@ -11,6 +11,7 @@
 #define SDAF_TRANSFORM_DELTA 1u
 #define SDAF_TRANSFORM_ZIGZAG 2u
 #define SDAF_TRANSFORM_SHUFFLE 3u
+#define SDAF_TRANSFORM_XOR 5u
 #define SDAF_TRANSFORM_ZSTD 16u
 
 uint16_t sdaf_get_u16(const uint8_t* p);
@@ -63,6 +64,10 @@ sdaf_status sdaf_decode_transforms(const uint8_t* encoded, size_t encoded_size,
     size_t channel_count, size_t lane_count, const sdaf_data_record* data, uint8_t** decoded,
     size_t* decoded_size, char* error, size_t error_size);
 sdaf_status sdaf_encode_numeric(const uint8_t* canonical, size_t canonical_size,
+    const sdaf_channel_info* channels, size_t channel_count, size_t lane_count,
+    const sdaf_data_info* info, uint8_t** encoded, size_t* encoded_size, char* error,
+    size_t error_size);
+sdaf_status sdaf_encode_bitwise(const uint8_t* canonical, size_t canonical_size,
     const sdaf_channel_info* channels, size_t channel_count, size_t lane_count,
     const sdaf_data_info* info, uint8_t** encoded, size_t* encoded_size, char* error,
     size_t error_size);

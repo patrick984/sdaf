@@ -1,6 +1,6 @@
 # SDAF implementations
 
-This repository contains C99 and .NET 10 encoders, decoders, and command-line converters for SDAF draft 0.4 (format version 1.0). The C implementation builds with a conforming C99 compiler. The C# implementation is compatible with trimming and Native AOT and uses no reflection-based serialization.
+This repository contains C99 and .NET 10 encoders, decoders, and command-line converters for SDAF draft 0.5 (format version 1.0). The C implementation builds with a conforming C99 compiler. The C# implementation is compatible with trimming and Native AOT and uses no reflection-based serialization.
 
 ## Repository layout
 
@@ -25,7 +25,7 @@ The principal implementation directories are:
 - `implementations/dotnet/Sdaf.Cli`: `sdaf` command-line converter for JSON, CBOR, and long-form CSV.
 - `implementations/dotnet/Sdaf.Tests`: TUnit unit, round-trip, CLI, and bundled conformance-fixture tests.
 
-The decoder supports leading and trailing payload CRCs, both sample layouts, dense and byte-aligned packing, all timestamp modes, schema metadata, `TEXT`, `BLOB`, `INDX`, `END!`, `NOTE`, Zstandard-only records, and the complete delta/zigzag/byte-shuffle/Zstandard numeric profile. Unknown record types and unknown `DATA` transforms remain safely skippable.
+The decoder supports leading and trailing payload CRCs, both sample layouts, dense and byte-aligned packing, all timestamp modes, schema metadata, `TEXT`, `BLOB`, `INDX`, `END!`, `NOTE`, Zstandard-only records, the integer delta/zigzag/byte-shuffle profile, and the IEEE floating-point XOR/byte-shuffle profile. Unknown record types and unknown `DATA` transforms remain safely skippable.
 
 ## Build and test C99
 
@@ -163,7 +163,7 @@ writer.WriteData(new SdafDataWriteOptions
 writer.WriteEnd();
 ```
 
-`WriteData` accepts the canonical decoded payload defined by the specification. Select `SdafCompression.Zstandard` or `SdafCompression.CompressedNumeric` to transform it before storage. The reader exposes both the stored payload and, when the schema and transforms are supported, the canonical decoded payload and typed samples.
+`WriteData` accepts the canonical decoded payload defined by the specification. Select `SdafCompression.Zstandard`, `SdafCompression.CompressedInteger` (`CompressedNumeric` remains as a compatibility alias), or `SdafCompression.CompressedBitwise` to transform it before storage. The bitwise profile accepts homogeneous `f32` or homogeneous `f64` streams and preserves the exact IEEE representation, including signed zero and NaN payload bits. The C API exposes the corresponding `SDAF_COMPRESSION_INTEGER`/`SDAF_COMPRESSION_NUMERIC` and `SDAF_COMPRESSION_BITWISE` values. The reader exposes both the stored payload and, when the schema and transforms are supported, the canonical decoded payload and typed samples.
 
 ## Validation and limits
 

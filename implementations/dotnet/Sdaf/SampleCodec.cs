@@ -169,27 +169,23 @@ internal static class SampleCodec
                 Bin.CheckedInt(header.DecodedSampleBytes, "decoded_sample_bytes")
             );
 
-        if (
-            transforms.Count != 4
-            || transforms[0].Id != 1
-            || transforms[1].Id != 2
-            || transforms[2].Id != 3
-            || transforms[3].Id != 16
-        )
-            throw new SdafFormatException(
-                "Typed numeric transforms must be exactly [1, 2, 3, 16]."
-            );
+        if (transforms.Select(t => t.Id).SequenceEqual(new ushort[] { 5, 3, 16 }))
+            return DecodeCompressedBitwise(encoded, channels, header);
+        if (!transforms.Select(t => t.Id).SequenceEqual(new ushort[] { 1, 2, 3, 16 }))
+            throw new SdafFormatException("Unsupported typed numeric transform profile.");
         if (
             channels.Length == 0
             || channels.Any(c =>
                 c.Type is not (SdafLogicalType.UnsignedInteger or SdafLogicalType.SignedInteger)
             )
         )
-            throw new SdafFormatException("Compressed numeric profile requires integer channels.");
+            throw new SdafFormatException(
+                "Compressed integer numeric profile requires integer channels."
+            );
         int bits = channels[0].LogicalBits;
         if (channels.Any(c => c.LogicalBits != bits))
             throw new SdafFormatException(
-                "Compressed numeric profile requires homogeneous logical widths."
+                "Compressed integer numeric profile requires homogeneous logical widths."
             );
         ulong laneCount = checked((ulong)channels.Sum(c => checked((int)c.Elements)));
         ulong valueCount = checked((ulong)header.SampleCount * laneCount);
@@ -199,7 +195,7 @@ internal static class SampleCodec
         );
         byte[] intermediate = Zstandard.Decompress(
             encoded,
-            Bin.CheckedInt(intermediateSize, "compressed numeric intermediate")
+            Bin.CheckedInt(intermediateSize, "compressed integer numeric intermediate")
         );
         ReadOnlySpan<byte> shuffled = intermediate.AsSpan(checked((int)header.TimestampBytes));
         ulong[] zigzag = Unshuffle(shuffled, checked((int)valueCount), width, bits);
@@ -239,11 +235,13 @@ internal static class SampleCodec
                 c.Type is not (SdafLogicalType.UnsignedInteger or SdafLogicalType.SignedInteger)
             )
         )
-            throw new ArgumentException("Compressed numeric profile requires integer channels.");
+            throw new ArgumentException(
+                "Compressed integer numeric profile requires integer channels."
+            );
         int bits = channels[0].LogicalBits;
         if (channels.Any(c => c.LogicalBits != bits))
             throw new ArgumentException(
-                "Compressed numeric profile requires homogeneous logical widths."
+                "Compressed integer numeric profile requires homogeneous logical widths."
             );
         ulong[] raw = ReadRawInOrder(canonical[(int)header.TimestampBytes..], channels, header);
         int[] laneOrder = GetLaneOrder(channels, header.SampleCount, header.Layout);
@@ -268,6 +266,92 @@ internal static class SampleCodec
         canonical[..(int)header.TimestampBytes].CopyTo(intermediate);
         shuffled.CopyTo(intermediate, (int)header.TimestampBytes);
         return Zstandard.Compress(intermediate);
+    }
+
+    internal static byte[] EncodeCompressedBitwise(
+        ReadOnlySpan<byte> canonical,
+        ChannelInfo[] channels,
+        SdafDataHeader header
+    )
+    {
+        int bits = ValidateBitwiseChannels(channels, false);
+        ulong[] raw = ReadRawInOrder(canonical[(int)header.TimestampBytes..], channels, header);
+        int[] laneOrder = GetLaneOrder(channels, header.SampleCount, header.Layout);
+        ulong[] previous = new ulong[channels.Sum(c => checked((int)c.Elements))];
+        ulong[] xorWords = new ulong[raw.Length];
+        for (int i = 0; i < raw.Length; i++)
+        {
+            int lane = laneOrder[i];
+            xorWords[i] = raw[i] ^ previous[lane];
+            previous[lane] = raw[i];
+        }
+        byte[] shuffled = Shuffle(xorWords, bits / 8);
+        byte[] intermediate = new byte[checked((int)header.TimestampBytes + shuffled.Length)];
+        canonical[..(int)header.TimestampBytes].CopyTo(intermediate);
+        shuffled.CopyTo(intermediate, (int)header.TimestampBytes);
+        return Zstandard.Compress(intermediate);
+    }
+
+    private static byte[] DecodeCompressedBitwise(
+        byte[] encoded,
+        ChannelInfo[] channels,
+        SdafDataHeader header
+    )
+    {
+        int bits = ValidateBitwiseChannels(channels, true);
+        ulong laneCount = checked((ulong)channels.Sum(c => checked((int)c.Elements)));
+        ulong valueCount = checked((ulong)header.SampleCount * laneCount);
+        int width = bits / 8;
+        ulong intermediateSize = checked(
+            header.TimestampBytes + checked(valueCount * (ulong)width)
+        );
+        byte[] intermediate = Zstandard.Decompress(
+            encoded,
+            Bin.CheckedInt(intermediateSize, "compressed bitwise numeric intermediate")
+        );
+        ulong[] xorWords = Unshuffle(
+            intermediate.AsSpan(checked((int)header.TimestampBytes)),
+            checked((int)valueCount),
+            width,
+            bits
+        );
+        int[] laneOrder = GetLaneOrder(channels, header.SampleCount, header.Layout);
+        ulong[] previous = new ulong[checked((int)laneCount)];
+        ulong[] raw = new ulong[xorWords.Length];
+        for (int i = 0; i < xorWords.Length; i++)
+        {
+            int lane = laneOrder[i];
+            raw[i] = previous[lane] = xorWords[i] ^ previous[lane];
+        }
+        byte[] canonical = new byte[
+            Bin.CheckedInt(header.DecodedSampleBytes, "decoded_sample_bytes")
+        ];
+        intermediate.AsSpan(0, checked((int)header.TimestampBytes)).CopyTo(canonical);
+        WriteCanonical(
+            raw,
+            canonical.AsSpan(checked((int)header.TimestampBytes)),
+            channels,
+            header
+        );
+        return canonical;
+    }
+
+    private static int ValidateBitwiseChannels(ChannelInfo[] channels, bool decoding)
+    {
+        if (channels.Length != 0 && channels.All(c => c.Type == SdafLogicalType.Float))
+        {
+            int bits = channels[0].LogicalBits;
+            if (
+                bits is 32 or 64
+                && channels.All(c => c.LogicalBits == bits && c.StorageBits == bits)
+            )
+                return bits;
+        }
+        const string message =
+            "Compressed bitwise numeric profile requires homogeneous f32 or f64 channels.";
+        if (decoding)
+            throw new SdafFormatException(message);
+        throw new ArgumentException(message);
     }
 
     internal static IEnumerable<(

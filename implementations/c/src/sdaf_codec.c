@@ -512,6 +512,22 @@ static sdaf_status write_canonical(const uint64_t* raw, size_t value_count,
     return SDAF_OK;
 }
 
+static int bitwise_profile_bits(
+    const sdaf_channel_info* channels, size_t channel_count, unsigned* bits)
+{
+    size_t i;
+    if (channel_count == 0u)
+        return 0;
+    *bits = channels[0].logical_bits;
+    if (*bits != 32u && *bits != 64u)
+        return 0;
+    for (i = 0u; i < channel_count; ++i)
+        if (channels[i].logical_type != SDAF_LOGICAL_FLOAT || channels[i].logical_bits != *bits
+            || channels[i].storage_bits != *bits)
+            return 0;
+    return 1;
+}
+
 sdaf_status sdaf_decode_transforms(const uint8_t* encoded, size_t encoded_size,
     const sdaf_transform* transforms, size_t transform_count, const sdaf_channel_info* channels,
     size_t channel_count, size_t lane_count, const sdaf_data_record* data, uint8_t** decoded,
@@ -548,8 +564,8 @@ sdaf_status sdaf_decode_transforms(const uint8_t* encoded, size_t encoded_size,
             if ((channels[position].logical_type != SDAF_LOGICAL_UNSIGNED
                     && channels[position].logical_type != SDAF_LOGICAL_SIGNED)
                 || channels[position].logical_bits != bits) {
-                sdaf_set_error(
-                    error, error_size, "numeric profile requires homogeneous integer channels");
+                sdaf_set_error(error, error_size,
+                    "integer numeric profile requires homogeneous integer channels");
                 return SDAF_ERROR_FORMAT;
             }
         if (!sdaf_mul_size(data->sample_count, lane_count, &value_count))
@@ -601,6 +617,75 @@ sdaf_status sdaf_decode_transforms(const uint8_t* encoded, size_t encoded_size,
                 canonical + data->timestamp_bytes, expected - data->timestamp_bytes);
         free(intermediate);
         free(zigzag);
+        free(previous);
+        free(raw);
+        if (status != SDAF_OK) {
+            free(canonical);
+            return status;
+        }
+        *decoded = canonical;
+        *decoded_size = expected;
+        return SDAF_OK;
+    }
+    if (transform_count == 3u && transforms[0].id == SDAF_TRANSFORM_XOR
+        && transforms[1].id == SDAF_TRANSFORM_SHUFFLE && transforms[2].id == SDAF_TRANSFORM_ZSTD) {
+        size_t value_count, width, sample_bytes, intermediate_size, position;
+        uint8_t *intermediate = NULL, *canonical = NULL;
+        uint64_t *xor_words = NULL, *previous = NULL, *raw = NULL;
+        unsigned bits;
+        sdaf_status status = SDAF_OK;
+        if (!bitwise_profile_bits(channels, channel_count, &bits)) {
+            sdaf_set_error(error, error_size,
+                "bitwise numeric profile requires homogeneous f32 or f64 channels");
+            return SDAF_ERROR_FORMAT;
+        }
+        if (!sdaf_mul_size(data->sample_count, lane_count, &value_count))
+            return SDAF_ERROR_LIMIT;
+        width = bits / 8u;
+        if (!sdaf_mul_size(value_count, width, &sample_bytes)
+            || !sdaf_add_size(data->timestamp_bytes, sample_bytes, &intermediate_size))
+            return SDAF_ERROR_LIMIT;
+        status = sdaf_zstd_decompress(
+            encoded, encoded_size, intermediate_size, &intermediate, error, error_size);
+        if (status != SDAF_OK)
+            return status;
+        status = unshuffle(intermediate + data->timestamp_bytes, sample_bytes, value_count,
+            (unsigned)width, bits, &xor_words);
+        if (status != SDAF_OK) {
+            free(intermediate);
+            sdaf_set_error(error, error_size, "invalid shuffled bitwise numeric payload");
+            return status;
+        }
+        previous = (uint64_t*)sdaf_calloc_array(lane_count, sizeof(*previous));
+        raw = (uint64_t*)sdaf_calloc_array(value_count, sizeof(*raw));
+        canonical = (uint8_t*)malloc(expected == 0u ? 1u : expected);
+        if (previous == NULL || raw == NULL || canonical == NULL) {
+            free(intermediate);
+            free(xor_words);
+            free(previous);
+            free(raw);
+            free(canonical);
+            return SDAF_ERROR_MEMORY;
+        }
+        memcpy(canonical, intermediate, data->timestamp_bytes);
+        for (position = 0u; position < value_count; ++position) {
+            size_t sample, channel_index, lane;
+            uint32_t element;
+            if (!order_item(channels, channel_count, lane_count, data, position, &sample,
+                    &channel_index, &element, &lane)) {
+                status = SDAF_ERROR_FORMAT;
+                break;
+            }
+            (void)sample;
+            (void)channel_index;
+            (void)element;
+            raw[position] = previous[lane] = xor_words[position] ^ previous[lane];
+        }
+        if (status == SDAF_OK)
+            status = write_canonical(raw, value_count, channels, channel_count, lane_count, data,
+                canonical + data->timestamp_bytes, expected - data->timestamp_bytes);
+        free(intermediate);
+        free(xor_words);
         free(previous);
         free(raw);
         if (status != SDAF_OK) {
@@ -677,7 +762,7 @@ sdaf_status sdaf_encode_numeric(const uint8_t* canonical, size_t canonical_size,
                 && channels[position].logical_type != SDAF_LOGICAL_SIGNED)
             || channels[position].logical_bits != bits) {
             sdaf_set_error(
-                error, error_size, "numeric profile requires homogeneous integer channels");
+                error, error_size, "integer numeric profile requires homogeneous integer channels");
             return SDAF_ERROR_ARGUMENT;
         }
     status = extract_raw(canonical + info->timestamp_bytes, canonical_size - info->timestamp_bytes,
@@ -745,6 +830,88 @@ sdaf_status sdaf_encode_numeric(const uint8_t* canonical, size_t canonical_size,
     free(raw);
     free(previous);
     free(zigzag);
+    free(intermediate);
+    return status;
+}
+
+sdaf_status sdaf_encode_bitwise(const uint8_t* canonical, size_t canonical_size,
+    const sdaf_channel_info* channels, size_t channel_count, size_t lane_count,
+    const sdaf_data_info* info, uint8_t** encoded, size_t* encoded_size, char* error,
+    size_t error_size)
+{
+    uint64_t *raw = NULL, *previous = NULL, *xor_words = NULL;
+    size_t count = 0u, position, width, shuffled_size, intermediate_size, output_offset;
+    uint8_t* intermediate;
+    unsigned bits;
+    sdaf_data_record data;
+    sdaf_status status;
+    if (!bitwise_profile_bits(channels, channel_count, &bits)) {
+        sdaf_set_error(
+            error, error_size, "bitwise numeric profile requires homogeneous f32 or f64 channels");
+        return SDAF_ERROR_ARGUMENT;
+    }
+    status = extract_raw(canonical + info->timestamp_bytes, canonical_size - info->timestamp_bytes,
+        channels, channel_count, lane_count, info, &raw, &count);
+    if (status != SDAF_OK)
+        return status;
+    previous = (uint64_t*)sdaf_calloc_array(lane_count, sizeof(*previous));
+    xor_words = (uint64_t*)sdaf_calloc_array(count, sizeof(*xor_words));
+    if (previous == NULL || xor_words == NULL) {
+        free(raw);
+        free(previous);
+        free(xor_words);
+        return SDAF_ERROR_MEMORY;
+    }
+    memset(&data, 0, sizeof(data));
+    data.sample_count = info->sample_count;
+    data.layout = info->layout;
+    for (position = 0u; position < count; ++position) {
+        size_t sample, channel_index, lane;
+        uint32_t element;
+        if (!order_item(channels, channel_count, lane_count, &data, position, &sample,
+                &channel_index, &element, &lane)) {
+            free(raw);
+            free(previous);
+            free(xor_words);
+            return SDAF_ERROR_FORMAT;
+        }
+        (void)sample;
+        (void)channel_index;
+        (void)element;
+        xor_words[position] = raw[position] ^ previous[lane];
+        previous[lane] = raw[position];
+    }
+    width = bits / 8u;
+    if (!sdaf_mul_size(count, width, &shuffled_size)
+        || !sdaf_add_size(info->timestamp_bytes, shuffled_size, &intermediate_size)) {
+        free(raw);
+        free(previous);
+        free(xor_words);
+        return SDAF_ERROR_LIMIT;
+    }
+    intermediate = (uint8_t*)malloc(intermediate_size == 0u ? 1u : intermediate_size);
+    if (intermediate == NULL) {
+        free(raw);
+        free(previous);
+        free(xor_words);
+        return SDAF_ERROR_MEMORY;
+    }
+    memcpy(intermediate, canonical, info->timestamp_bytes);
+    output_offset = info->timestamp_bytes;
+    for (position = 0u; position < count; position += 256u) {
+        size_t block = count - position < 256u ? count - position : 256u, byte_lane;
+        for (byte_lane = 0u; byte_lane < width; ++byte_lane) {
+            size_t i;
+            for (i = 0u; i < block; ++i)
+                intermediate[output_offset++]
+                    = (uint8_t)(xor_words[position + i] >> (byte_lane * 8u));
+        }
+    }
+    status
+        = sdaf_zstd_compress(intermediate, output_offset, encoded, encoded_size, error, error_size);
+    free(raw);
+    free(previous);
+    free(xor_words);
     free(intermediate);
     return status;
 }

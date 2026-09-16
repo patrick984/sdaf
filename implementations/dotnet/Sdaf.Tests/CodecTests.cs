@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace Sdaf.Tests;
 
 public class CodecTests
@@ -82,6 +84,115 @@ public class CodecTests
         await Assert.That(() => { _ = reader.ReadRecords().ToList(); }).Throws<SdafFormatException>();
     }
 
+    [Test]
+    public async Task CompressedBitwiseF32UsesNormativeXorProfile()
+    {
+        uint[] words =
+        [
+            0x3f800000,
+            0xc0000000,
+            0x3fc00000,
+            0xc0000000,
+            0x3fc00000,
+            0xc0200000,
+        ];
+        byte[] payload = new byte[words.Length * sizeof(uint)];
+        for (int i = 0; i < words.Length; i++)
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(i * sizeof(uint)), words[i]);
+
+        SdafDataRecord data = RoundTripBitwise(FloatSchema(3, 32, 2), 3, 3, payload);
+
+        using (Assert.Multiple())
+        {
+            await Assert.That(data.Transforms.Select(t => t.Id))
+                .IsEquivalentTo(new ushort[] { 5, 3, 16 }, CollectionOrdering.Matching);
+            await Assert.That(data.DecodedPayload!)
+                .IsEquivalentTo(payload, CollectionOrdering.Matching);
+            await Assert.That(data.Samples!.SelectMany(s => s.Values).Select(v => v.RawUnsigned))
+                .IsEquivalentTo(words.Select(w => (ulong)w), CollectionOrdering.Matching);
+        }
+    }
+
+    [Test]
+    public async Task CompressedBitwiseF64PreservesExceptionalBitPatterns()
+    {
+        ulong[] words =
+        [
+            0x8000000000000000,
+            0x7ff8000000001234,
+            0x0000000000000001,
+            0x7ff0000000000000,
+        ];
+        byte[] payload = new byte[words.Length * sizeof(ulong)];
+        for (int i = 0; i < words.Length; i++)
+            BinaryPrimitives.WriteUInt64LittleEndian(payload.AsSpan(i * sizeof(ulong)), words[i]);
+
+        SdafDataRecord data = RoundTripBitwise(FloatSchema(4, 64, 1), 4, 4, payload);
+
+        await Assert.That(data.DecodedPayload!)
+            .IsEquivalentTo(payload, CollectionOrdering.Matching);
+        await Assert.That(data.Samples!.Select(s => s.Values[0].RawUnsigned))
+            .IsEquivalentTo(words, CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task TypedCompressionProfilesEnforceChannelKinds()
+    {
+        using var integerStream = new MemoryStream();
+        using var integerWriter = new SdafWriter(integerStream, leaveOpen: true);
+        SdafSchema integerSchema = TwoChannelSchema();
+        integerWriter.WriteSchema(integerSchema);
+        await Assert.That(() => integerWriter.WriteData(new SdafDataWriteOptions
+        {
+            SchemaId = 1,
+            StreamId = 1,
+            SampleCount = 3,
+            TimestampMode = SdafTimestampMode.None,
+            Compression = SdafCompression.CompressedBitwise,
+        }, Convert.FromHexString("00F0FF236145BC9A78"))).Throws<ArgumentException>();
+
+        using var floatStream = new MemoryStream();
+        using var floatWriter = new SdafWriter(floatStream, leaveOpen: true);
+        SdafSchema floatSchema = FloatSchema(3, 32, 2);
+        floatWriter.WriteSchema(floatSchema);
+        await Assert.That(() => floatWriter.WriteData(new SdafDataWriteOptions
+        {
+            SchemaId = 3,
+            StreamId = 3,
+            SampleCount = 1,
+            TimestampMode = SdafTimestampMode.None,
+            Compression = SdafCompression.CompressedInteger,
+        }, new byte[8])).Throws<ArgumentException>();
+    }
+
+    private static SdafDataRecord RoundTripBitwise(
+        SdafSchema schema,
+        uint streamId,
+        uint sampleCount,
+        byte[] payload
+    )
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new SdafWriter(stream, leaveOpen: true))
+        {
+            writer.WriteSchema(schema);
+            writer.WriteData(new SdafDataWriteOptions
+            {
+                SchemaId = schema.Id,
+                SchemaRevision = schema.Revision,
+                StreamId = streamId,
+                SampleCount = sampleCount,
+                TimestampMode = SdafTimestampMode.None,
+                Layout = SdafLayout.Interleaved,
+                Packing = SdafPacking.ByteAligned,
+                Compression = SdafCompression.CompressedBitwise,
+            }, payload);
+        }
+        stream.Position = 0;
+        using var reader = new SdafReader(stream);
+        return reader.ReadRecords().OfType<SdafDataRecord>().Single();
+    }
+
     private static SdafSchema TwoChannelSchema() => new(1, 1,
     [
         new(SdafObjectKind.Stream, 1, [SdafTlv.Utf8(1, "adc"), SdafTlv.UInt8(100, 1), SdafTlv.Rational(101, 1UL, 1000), SdafTlv.UInt8(103, 1), SdafTlv.UInt32(104, 2)]),
@@ -92,6 +203,20 @@ public class CodecTests
     [
         new(SdafObjectKind.Stream, 10, [SdafTlv.Utf8(1, "events"), SdafTlv.UInt32(104, 0), SdafTlv.UInt8(106, 2)]),
         new(SdafObjectKind.Stream, 20, [SdafTlv.Utf8(1, "raw"), SdafTlv.UInt32(104, 0), SdafTlv.UInt8(106, 3), SdafTlv.Utf8(107, "application/octet-stream")]),
+    ]);
+
+    private static SdafSchema FloatSchema(uint id, ushort bits, uint channels) => new(id, 1,
+    [
+        new(SdafObjectKind.Stream, id, [SdafTlv.UInt32(104, channels)]),
+        .. Enumerable.Range(0, checked((int)channels)).Select(index =>
+            new SdafSchemaObject(SdafObjectKind.Channel, checked((uint)index + 1),
+            [
+                SdafTlv.Utf8(1, $"f{index}"),
+                SdafTlv.UInt32(200, id),
+                SdafTlv.UInt8(201, (byte)SdafLogicalType.Float),
+                SdafTlv.UInt16(202, bits),
+                SdafTlv.UInt16(203, bits),
+            ])),
     ]);
 
     private static SdafSchemaObject Channel(uint id, uint stream, string name, ushort bits) => new(SdafObjectKind.Channel, id,

@@ -649,7 +649,7 @@ public sealed class SdafReader : IDisposable
             );
             offset += 8 + checked((int)size);
         }
-        foreach (SdafTransform t in result.Where(t => t.Id is 1 or 2 or 3 or 16))
+        foreach (SdafTransform t in result.Where(t => t.Id is 1 or 2 or 3 or 5 or 16))
             if (t.Version != 1 || t.Parameters.Length != 0)
                 throw Error(recordOffset, "Known transform has unsupported version or parameters.");
         return (result, offset);
@@ -661,25 +661,22 @@ public sealed class SdafReader : IDisposable
             return true;
         if (transforms.Count == 1 && transforms[0].Id == 16)
             return true;
-        bool anyTyped = transforms.Any(t => t.Id is 1 or 2 or 3);
-        if (
-            anyTyped
-            && (
-                transforms.Count != 4
-                || transforms[0].Id != 1
-                || transforms[1].Id != 2
-                || transforms[2].Id != 3
-                || transforms[3].Id != 16
-            )
-        )
-            throw new SdafFormatException(
-                "Typed numeric transforms must be exactly [1, 2, 3, 16]."
-            );
-        return transforms.Count == 4
+        bool integerProfile =
+            transforms.Count == 4
             && transforms[0].Id == 1
             && transforms[1].Id == 2
             && transforms[2].Id == 3
             && transforms[3].Id == 16;
+        bool bitwiseProfile =
+            transforms.Count == 3
+            && transforms[0].Id == 5
+            && transforms[1].Id == 3
+            && transforms[2].Id == 16;
+        if (transforms.Any(t => t.Id is 1 or 2 or 3 or 5) && !integerProfile && !bitwiseProfile)
+            throw new SdafFormatException(
+                "Typed numeric transforms must be exactly [1, 2, 3, 16] or [5, 3, 16]."
+            );
+        return integerProfile || bitwiseProfile;
     }
 
     private static void ValidateTimestampHeader(

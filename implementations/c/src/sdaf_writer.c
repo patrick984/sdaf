@@ -301,6 +301,18 @@ sdaf_status sdaf_encoder_write_data(sdaf_encoder* encoder, const sdaf_schema* sc
             free(channels);
             return status;
         }
+    } else if (info->compression == SDAF_COMPRESSION_BITWISE) {
+        ids[0] = 5u;
+        ids[1] = 3u;
+        ids[2] = 16u;
+        transform_count = 3u;
+        status = sdaf_encode_bitwise((const uint8_t*)canonical_payload, payload_size, channels,
+            channel_count, lane_count, info, &encoded, &encoded_size, encoder->error,
+            sizeof(encoder->error));
+        if (status != SDAF_OK) {
+            free(channels);
+            return status;
+        }
     } else {
         free(channels);
         return encoder_fail(encoder, SDAF_ERROR_ARGUMENT, "unknown DATA compression mode");
@@ -378,7 +390,8 @@ sdaf_status sdaf_encoder_write_blob(sdaf_encoder* encoder, const sdaf_blob_info*
     sdaf_status status;
     if (encoder == NULL || info == NULL || (decoded_payload == NULL && payload_size != 0u)
         || info->schema_id == 0u || info->schema_revision == 0u || info->stream_id == 0u
-        || info->compression == SDAF_COMPRESSION_NUMERIC)
+        || info->compression == SDAF_COMPRESSION_NUMERIC
+        || info->compression == SDAF_COMPRESSION_BITWISE)
         return SDAF_ERROR_ARGUMENT;
     if (info->compression == SDAF_COMPRESSION_ZSTANDARD) {
         count = 1u;

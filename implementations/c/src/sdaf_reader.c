@@ -255,7 +255,7 @@ static sdaf_status parse_transforms(const uint8_t* payload, size_t payload_size,
             return SDAF_ERROR_MEMORY;
         }
         if ((transform->id == 1u || transform->id == 2u || transform->id == 3u
-                || transform->id == 16u)
+                || transform->id == 5u || transform->id == 16u)
             && (transform->version != 1u || parameter_size != 0u)) {
             sdaf_set_error(
                 error, error_size, "known transform has unsupported version or parameters");
@@ -304,18 +304,21 @@ invalid:
 static int data_transforms_valid(const sdaf_transform* transforms, size_t count, int* supported)
 {
     size_t i;
-    int any_typed = 0;
+    int any_typed = 0, integer_profile, bitwise_profile;
     *supported = 0;
     if (count == 0u || (count == 1u && transforms[0].id == 16u)) {
         *supported = 1;
         return 1;
     }
     for (i = 0u; i < count; ++i)
-        if (transforms[i].id >= 1u && transforms[i].id <= 3u)
+        if ((transforms[i].id >= 1u && transforms[i].id <= 3u) || transforms[i].id == 5u)
             any_typed = 1;
+    integer_profile = count == 4u && transforms[0].id == 1u && transforms[1].id == 2u
+        && transforms[2].id == 3u && transforms[3].id == 16u;
+    bitwise_profile = count == 3u && transforms[0].id == 5u && transforms[1].id == 3u
+        && transforms[2].id == 16u;
     if (any_typed) {
-        if (!(count == 4u && transforms[0].id == 1u && transforms[1].id == 2u
-                && transforms[2].id == 3u && transforms[3].id == 16u))
+        if (!integer_profile && !bitwise_profile)
             return 0;
         *supported = 1;
     }
@@ -369,7 +372,7 @@ static sdaf_status parse_data(const uint8_t* h, const uint8_t* payload, size_t p
     if (status != SDAF_OK)
         return status;
     if (!data_transforms_valid(data->transforms, data->transform_count, &supported)) {
-        sdaf_set_error(error, error_size, "typed transforms must be exactly [1,2,3,16]");
+        sdaf_set_error(error, error_size, "typed transforms must be [1,2,3,16] or [5,3,16]");
         return SDAF_ERROR_FORMAT;
     }
     data->stored_payload = sdaf_memdup(payload, payload_size);

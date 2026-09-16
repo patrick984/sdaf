@@ -124,13 +124,21 @@ public sealed class SdafWriter : IDisposable
                 encoded = Zstandard.Compress(canonicalDecodedPayload);
                 ids = [16];
                 break;
-            case SdafCompression.CompressedNumeric:
+            case SdafCompression.CompressedInteger:
                 encoded = SampleCodec.EncodeCompressedNumeric(
                     canonicalDecodedPayload,
                     channels,
                     dh
                 );
                 ids = [1, 2, 3, 16];
+                break;
+            case SdafCompression.CompressedBitwise:
+                encoded = SampleCodec.EncodeCompressedBitwise(
+                    canonicalDecodedPayload,
+                    channels,
+                    dh
+                );
+                ids = [5, 3, 16];
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(options.Compression));
@@ -228,7 +236,10 @@ public sealed class SdafWriter : IDisposable
                 "BLOB item_index must be strictly increasing within its stream.",
                 nameof(options)
             );
-        if (options.Compression == SdafCompression.CompressedNumeric)
+        if (
+            options.Compression
+            is SdafCompression.CompressedInteger or SdafCompression.CompressedBitwise
+        )
             throw new ArgumentException("BLOB does not support typed numeric transforms.");
         ushort[] ids = options.Compression == SdafCompression.Zstandard ? [16] : [];
         byte[] encoded =

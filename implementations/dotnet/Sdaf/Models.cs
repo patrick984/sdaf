@@ -82,7 +82,10 @@ public enum SdafCompression
 {
     None,
     Zstandard,
-    CompressedNumeric,
+    CompressedInteger,
+    CompressedNumeric = CompressedInteger,
+    CompressedBitwise,
+    CompressedBitwiseNumeric = CompressedBitwise,
 }
 
 public sealed class SdafFormatException : IOException
